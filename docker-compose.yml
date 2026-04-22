@@ -1,0 +1,39 @@
+services:
+
+  api-gateway:
+    build:
+      context: ../BookingAPI
+    container_name: ApiGateway
+    depends_on:
+      - user-service 
+    ports:
+      - "8080:8080"
+
+  user-service:
+    build:
+      context: ../UsersMicroService
+    container_name: users-service
+    volumes:
+      - ./keys/public.pem:/app/keys/public.pem:ro
+      - ./keys/private.pem:/app/keys/private.pem:ro
+    depends_on:
+      - user-db
+    environment:
+      DATABASE_URL: ${USER_SERVICE_DATABASE_URL}
+    ports:
+      - "8081:8081"
+
+  user-db:
+    image: postgres:16
+    container_name: user-db
+    environment:
+      POSTGRES_USER: ${USER_DB_USER}
+      POSTGRES_PASSWORD: ${USER_DB_PASSWORD}
+      POSTGRES_DB: ${USER_DB_NAME}
+    volumes:
+      - user-db-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+volumes:
+  user-db-data:
