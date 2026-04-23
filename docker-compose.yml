@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-
   api-gateway:
     build:
       context: ../BookingAPI
@@ -9,6 +8,10 @@ services:
     restart: unless-stopped
     depends_on:
       user-service:
+        condition: service_healthy
+      media-service:
+        condition: service_healthy
+      hotel-service:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -130,7 +133,7 @@ services:
       mc anonymous set download local/${MINIO_BUCKET:-media};
       echo 'Bucket ready';
       "
-  
+
   # HTTP wrapper service that exposes upload/download endpoints and holds MinIO creds
   minio-service:
     build:
@@ -142,6 +145,8 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "8083:8080"
     healthcheck:
