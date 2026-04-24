@@ -1,2 +1,40 @@
+# Environment files
 *.env
+*.env.local
+*.env.*.local
+
+# Certificates and keys
 *.pem
+*.key
+*.crt
+
+# Node.js / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# TypeScript
+*.tsbuildinfo
+dist/
+build/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test outputs
+coverage/
+*.log
+.nyc_output/

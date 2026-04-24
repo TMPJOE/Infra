@@ -1,0 +1,19 @@
+{
+  "name": "hotel-integration-tests",
+  "version": "1.0.0",
+  "description": "End-to-end integration testing suite for hotel microservices",
+  "type": "module",
+  "scripts": {
+    "test": "tsx e2e-test-suite.ts",
+    "test:services": "tsx e2e-test-suite.ts",
+    "test:full": "tsx e2e-test-suite.ts --full",
+    "test:health": "tsx health-check.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.0"
+  }
+}

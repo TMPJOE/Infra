@@ -1,0 +1,566 @@
+/**
+ * Main Test Suite
+ * Core test functions for the hotel microservices integration tests
+ */
+
+import config from './test-config.ts';
+import { TestClient } from './test-client.ts';
+import { TestRunner } from './test-runner.ts';
+
+// Shared test data
+interface SharedTestData {
+  adminToken: string | null;
+  userToken: string | null;
+  adminId: string | null;
+  userId: string | null;
+  hotelId: string | null;
+  roomId: string | null;
+  uploadedMedia: any[];
+}
+
+const testData: SharedTestData = {
+  adminToken: null,
+  userToken: null,
+  adminId: null,
+  userId: null,
+  hotelId: null,
+  roomId: null,
+  uploadedMedia: [],
+};
+
+// Initialize clients
+const userClient = new TestClient(config.baseUrl.userService);
+const hotelClient = new TestClient(config.baseUrl.hotelService);
+const mediaClient = new TestClient(config.baseUrl.mediaService);
+const roomClient = new TestClient(config.baseUrl.roomService);
+
+const runner = new TestRunner(true);
+
+// ============================================================================
+// SUITE 1: Service Health Checks
+// ============================================================================
+export async function testServiceHealth(): Promise<void> {
+  runner.startSuite('Service Health Checks');
+
+  await runner.runTest('User Service health endpoint', async () => {
+    const response = await userClient.get('/health');
+    if (response.status !== 200) throw new Error(`Health check failed: ${response.status}`);
+  });
+
+  await runner.runTest('Hotel Service health endpoint', async () => {
+    const response = await hotelClient.get('/health');
+    if (response.status !== 200) throw new Error(`Health check failed: ${response.status}`);
+  });
+
+  await runner.runTest('Media Service health endpoint', async () => {
+    const response = await mediaClient.get('/health');
+    if (response.status !== 200) throw new Error(`Health check failed: ${response.status}`);
+  });
+
+  await runner.runTest('Room Service health endpoint', async () => {
+    const response = await roomClient.get('/health');
+    if (response.status !== 200) throw new Error(`Health check failed: ${response.status}`);
+  });
+
+  await runner.runTest('User Service readiness check', async () => {
+    const response = await userClient.get('/ready');
+    if (response.status !== 200) throw new Error(`Readiness check failed: ${response.status}`);
+  });
+
+  await runner.runTest('Hotel Service readiness check', async () => {
+    const response = await hotelClient.get('/ready');
+    if (response.status !== 200) throw new Error(`Readiness check failed: ${response.status}`);
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 2: User Authentication Flow
+// ============================================================================
+export async function testUserAuthentication(): Promise<void> {
+  runner.startSuite('User Authentication Flow');
+
+  const uniqueTimestamp = Date.now();
+  const adminEmail = `admin_${uniqueTimestamp}@hotel.com`;
+  const userEmail = `user_${uniqueTimestamp}@hotel.com`;
+
+  await runner.runTest('Register admin user', async () => {
+    const response = await userClient.post('/register', {
+      email: adminEmail,
+      password: config.credentials.adminPassword,
+      displayName: 'Test Admin',
+      userType: 'admin',
+    });
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(`Registration failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Register regular user', async () => {
+    const response = await userClient.post('/register', {
+      email: userEmail,
+      password: config.credentials.userPassword,
+      displayName: 'Test User',
+      userType: 'user',
+    });
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(`Registration failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Login admin user', async () => {
+    const response = await userClient.post('/login', {
+      email: adminEmail,
+      password: config.credentials.adminPassword,
+    });
+    if (response.status !== 200 || !response.body.access_token) {
+      throw new Error(`Admin login failed: ${response.status}`);
+    }
+    testData.adminToken = response.body.access_token;
+    testData.adminId = response.body.user?.id || null;
+  });
+
+  await runner.runTest('Login regular user', async () => {
+    const response = await userClient.post('/login', {
+      email: userEmail,
+      password: config.credentials.userPassword,
+    });
+    if (response.status !== 200 || !response.body.access_token) {
+      throw new Error(`User login failed: ${response.status}`);
+    }
+    testData.userToken = response.body.access_token;
+    testData.userId = response.body.user?.id || null;
+  });
+
+  await runner.runTest('Verify admin token works', async () => {
+    userClient.setToken(testData.adminToken!);
+    const response = await userClient.get('/profile');
+    if (response.status !== 200) {
+      throw new Error(`Profile fetch failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Verify user token works', async () => {
+    userClient.setToken(testData.userToken!);
+    const response = await userClient.get('/profile');
+    if (response.status !== 200) {
+      throw new Error(`Profile fetch failed: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 3: Hotel CRUD Operations
+// ============================================================================
+export async function testHotelOperations(): Promise<void> {
+  runner.startSuite('Hotel CRUD Operations');
+
+  await runner.runTest('List hotels (empty initially)', async () => {
+    hotelClient.setToken(testData.adminToken!);
+    const response = await hotelClient.get('/hotels');
+    if (response.status !== 200) {
+      throw new Error(`List hotels failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Create hotel (admin only)', async () => {
+    hotelClient.setToken(testData.adminToken!);
+    const response = await hotelClient.post('/hotels', {
+      name: 'Grand Test Hotel',
+      city: 'Test City',
+      description: 'A beautiful test hotel',
+      lat: 40.7128,
+      lng: -74.0060,
+    });
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(`Create hotel failed: ${response.status} - ${JSON.stringify(response.body)}`);
+    }
+    testData.hotelId = response.body.id;
+  });
+
+  await runner.runTest('Get hotel by ID', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await hotelClient.get(`/hotels/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get hotel failed: ${response.status}`);
+    }
+    if (response.body.name !== 'Grand Test Hotel') {
+      throw new Error('Hotel name mismatch');
+    }
+  });
+
+  await runner.runTest('List hotels with city filter', async () => {
+    const response = await hotelClient.get('/hotels?city=Test%20City');
+    if (response.status !== 200) {
+      throw new Error(`Filter hotels failed: ${response.status}`);
+    }
+    const hotels = response.body;
+    if (!Array.isArray(hotels) || hotels.length === 0) {
+      throw new Error('Expected hotels in result');
+    }
+  });
+
+  await runner.runTest('Update hotel (admin only)', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    hotelClient.setToken(testData.adminToken!);
+    const response = await hotelClient.put(`/hotels/${testData.hotelId}`, {
+      name: 'Updated Grand Test Hotel',
+      description: 'Updated description',
+    });
+    if (response.status !== 200) {
+      throw new Error(`Update hotel failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Verify hotel update', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await hotelClient.get(`/hotels/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get hotel failed: ${response.status}`);
+    }
+    if (response.body.name !== 'Updated Grand Test Hotel') {
+      throw new Error('Hotel update verification failed');
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 4: Media Service Integration
+// ============================================================================
+export async function testMediaOperations(): Promise<void> {
+  runner.startSuite('Media Service Integration');
+
+  await runner.runTest('Upload hotel image via Media Service', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+
+    const testImage = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64'
+    );
+
+    const formData = new FormData();
+    formData.append('file', new Blob([testImage], { type: 'image/png' }), 'test-hotel.png');
+    formData.append('asset_type', 'hotel');
+    formData.append('asset_id', testData.hotelId);
+
+    mediaClient.setToken(testData.adminToken!);
+    const response = await mediaClient.request('POST', '/upload', {
+      body: formData,
+      isMultipart: true,
+    });
+
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(`Upload failed: ${response.status} - ${JSON.stringify(response.body)}`);
+    }
+
+    testData.uploadedMedia.push({
+      type: 'hotel',
+      id: testData.hotelId,
+      response: response.body,
+    });
+  });
+
+  await runner.runTest('List hotel images', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await mediaClient.get(`/hotels/${testData.hotelId}/images`);
+    if (response.status !== 200) {
+      throw new Error(`List images failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Download image from Media Service', async () => {
+    if (testData.uploadedMedia.length === 0) throw new Error('No media uploaded');
+    const media = testData.uploadedMedia[0];
+    const response = await mediaClient.get(`/download/${media.response.bucket}/${media.response.key}`);
+    if (response.status !== 200) {
+      throw new Error(`Download failed: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 5: Room Service Integration
+// ============================================================================
+export async function testRoomOperations(): Promise<void> {
+  runner.startSuite('Room Service Integration');
+
+  await runner.runTest('Create room for hotel (admin only)', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    roomClient.setToken(testData.adminToken!);
+
+    const response = await roomClient.post(`/hotels/${testData.hotelId}/rooms`, {
+      name: 'Deluxe Suite',
+      type: 'Suite',
+      capacity: 2,
+      price: 299.99,
+      quantity: 10,
+      description: 'Luxury suite with ocean view',
+    });
+
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(`Create room failed: ${response.status} - ${JSON.stringify(response.body)}`);
+    }
+    // Response is an array of created rooms (one per quantity)
+    const rooms = Array.isArray(response.body) ? response.body : [response.body];
+    if (rooms.length === 0 || !rooms[0].id) {
+      throw new Error(`Room created but no ID returned. Response: ${JSON.stringify(response.body)}`);
+    }
+    // Store the first room's ID for subsequent tests
+    testData.roomId = rooms[0].id;
+  });
+
+  await runner.runTest('List rooms by hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await roomClient.get(`/rooms/list/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`List rooms failed: ${response.status}`);
+    }
+    // Response might be wrapped in an object with rooms property or direct array
+    const rooms = response.body.rooms || response.body;
+    if (!Array.isArray(rooms) || rooms.length === 0) {
+      throw new Error('Expected rooms in result');
+    }
+  });
+
+  await runner.runTest('Get room by ID', async () => {
+    if (!testData.roomId) throw new Error('No room ID available');
+    const response = await roomClient.get(`/rooms/${testData.roomId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get room failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Check room availability', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await roomClient.get(`/rooms/available/${testData.hotelId}?type=Suite&name=Deluxe%20Suite`);
+    if (response.status !== 200) {
+      throw new Error(`Availability check failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Update room (admin only)', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    if (!testData.roomId) throw new Error('No room ID available');
+    roomClient.setToken(testData.adminToken!);
+    const response = await roomClient.put(`/hotels/${testData.hotelId}/rooms/${testData.roomId}`, {
+      price: 349.99,
+      description: 'Updated luxury suite',
+    });
+    if (response.status !== 200) {
+      throw new Error(`Update room failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Update room quantity (admin only)', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    roomClient.setToken(testData.adminToken!);
+    const response = await roomClient.patch(`/hotels/${testData.hotelId}/rooms/Suite/Deluxe%20Suite/quantity`, {
+      quantity: 15,
+    });
+    // PATCH may return 200 or 204 (No Content)
+    if (response.status !== 200 && response.status !== 204) {
+      throw new Error(`Update quantity failed: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 6: Review Operations
+// ============================================================================
+export async function testReviewOperations(): Promise<void> {
+  runner.startSuite('Review Operations');
+
+  await runner.runTest('Create review for hotel (authenticated user)', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    hotelClient.setToken(testData.userToken!);
+
+    const response = await hotelClient.post(`/hotels/${testData.hotelId}/reviews`, {
+      rating: 5,
+      comment: 'Excellent service and amenities!',
+    });
+
+    if (response.status !== 201) {
+      throw new Error(`Create review failed: ${response.status} - ${JSON.stringify(response.body)}`);
+    }
+  });
+
+  await runner.runTest('List reviews by hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    hotelClient.setToken(testData.userToken!);
+    const response = await hotelClient.get(`/hotels/${testData.hotelId}/reviews`);
+    if (response.status !== 200) {
+      throw new Error(`List reviews failed: ${response.status}`);
+    }
+    if (!Array.isArray(response.body) || response.body.length === 0) {
+      throw new Error('Expected reviews in result');
+    }
+  });
+
+  await runner.runTest('Verify hotel rating updated', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await hotelClient.get(`/hotels/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get hotel failed: ${response.status}`);
+    }
+    if (response.body.rating === undefined || response.body.rating === null) {
+      throw new Error('Hotel rating should be updated after review');
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 7: Cross-Service Data Integrity
+// ============================================================================
+export async function testDataIntegrity(): Promise<void> {
+  runner.startSuite('Cross-Service Data Integrity');
+
+  await runner.runTest('Verify media linked to hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await mediaClient.get(`/hotels/${testData.hotelId}/images`);
+    if (response.status !== 200) {
+      throw new Error(`Media verification failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Verify rooms linked to hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await roomClient.get(`/rooms/list/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Room verification failed: ${response.status}`);
+    }
+    // Response might be wrapped in an object with rooms property or direct array
+    const rooms = response.body.rooms || response.body;
+    if (!Array.isArray(rooms) || rooms.length === 0) {
+      throw new Error('Expected rooms for hotel');
+    }
+  });
+
+  await runner.runTest('Verify reviews linked to hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    const response = await hotelClient.get(`/hotels/${testData.hotelId}/reviews`);
+    if (response.status !== 200) {
+      throw new Error(`Review verification failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Verify hotel exists in list after all operations', async () => {
+    const response = await hotelClient.get('/hotels');
+    if (response.status !== 200) {
+      throw new Error(`List hotels failed: ${response.status}`);
+    }
+    const hotels = response.body;
+    const found = hotels.find((h: any) => h.id === testData.hotelId);
+    if (!found) {
+      throw new Error('Hotel not found in list after operations');
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 8: Authorization and Security
+// ============================================================================
+export async function testAuthorization(): Promise<void> {
+  runner.startSuite('Authorization & Security');
+
+  await runner.runTest('Non-admin cannot create room', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    roomClient.setToken(testData.userToken!);
+    const response = await roomClient.post(`/hotels/${testData.hotelId}/rooms`, {
+      name: 'Test Room',
+      type: 'Test',
+      capacity: 1,
+      price: 100,
+      quantity: 1,
+    });
+    if (response.status !== 403) {
+      throw new Error(`Expected 403, got: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Non-admin cannot update hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    hotelClient.setToken(testData.userToken!);
+    const response = await hotelClient.put(`/hotels/${testData.hotelId}`, {
+      name: 'Unauthorized Update',
+    });
+    if (response.status !== 403) {
+      throw new Error(`Expected 403, got: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Non-admin cannot delete hotel', async () => {
+    if (!testData.hotelId) throw new Error('No hotel ID available');
+    hotelClient.setToken(testData.userToken!);
+    const response = await hotelClient.delete(`/hotels/${testData.hotelId}`);
+    if (response.status !== 403) {
+      throw new Error(`Expected 403, got: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Unauthorized request returns 401', async () => {
+    hotelClient.clearToken();
+    const response = await hotelClient.post('/hotels', {
+      name: 'Unauthorized Hotel',
+      city: 'Test',
+    });
+    if (response.status !== 401) {
+      throw new Error(`Expected 401, got: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 9: Cleanup
+// ============================================================================
+export async function cleanupTestData(): Promise<void> {
+  runner.startSuite('Cleanup Test Data');
+
+  await runner.runTest('Delete test room', async () => {
+    if (!testData.hotelId) {
+      console.log(' Skip: No hotel ID');
+      return;
+    }
+    if (!testData.roomId) {
+      console.log(' Skip: No room ID');
+      return;
+    }
+    roomClient.setToken(testData.adminToken!);
+    const response = await roomClient.delete(`/hotels/${testData.hotelId}/rooms/${testData.roomId}`);
+    // DELETE returns 204 (No Content) on success
+    if (response.status !== 200 && response.status !== 204) {
+      throw new Error(`Delete room failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest('Delete test hotel', async () => {
+    if (!testData.hotelId) {
+      console.log('    Skip: No hotel ID');
+      return;
+    }
+    hotelClient.setToken(testData.adminToken!);
+    const response = await hotelClient.delete(`/hotels/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Delete hotel failed: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// Export shared data and clients for use in other test files
+export { testData, userClient, hotelClient, mediaClient, roomClient, runner };
