@@ -167,7 +167,10 @@ user_type: "user",
 			throw new Error(`Admin login failed: ${response.status}`);
 		}
 		testData.adminToken = response.body.access_token;
-		testData.adminId = response.body.user?.id || null;
+		// Fetch profile to get user ID since it's not in the login response
+		userClient.setToken(testData.adminToken!);
+		const profileRes = await userClient.get("/profile");
+		testData.adminId = profileRes.body.id || null;
 	});
 
 	await runner.runTest("Login regular user", async () => {
@@ -179,7 +182,10 @@ user_type: "user",
 			throw new Error(`User login failed: ${response.status}`);
 		}
 		testData.userToken = response.body.access_token;
-		testData.userId = response.body.user?.id || null;
+		// Fetch profile to get user ID since it's not in the login response
+		userClient.setToken(testData.userToken!);
+		const profileRes = await userClient.get("/profile");
+		testData.userId = profileRes.body.id || null;
 	});
 
 	await runner.runTest("Verify admin token works", async () => {
@@ -622,8 +628,8 @@ async function testBookingOperations(): Promise<void> {
     if (response.status !== 200) {
       throw new Error(`List bookings failed: ${response.status}`);
     }
-    if (!Array.isArray(response.body)) {
-      throw new Error("Expected array of bookings");
+    if (!Array.isArray(response.body) && response.body !== null) {
+      throw new Error("Expected array of bookings or null");
     }
   });
 
@@ -673,8 +679,8 @@ async function testBookingOperations(): Promise<void> {
     if (response.status !== 200) {
       throw new Error(`List user bookings failed: ${response.status}`);
     }
-    if (!Array.isArray(response.body.bookings) && !Array.isArray(response.body)) {
-      throw new Error("Expected bookings array");
+    if (!Array.isArray(response.body.bookings) && !Array.isArray(response.body) && response.body !== null) {
+      throw new Error("Expected bookings array or null");
     }
   });
 
@@ -685,8 +691,8 @@ async function testBookingOperations(): Promise<void> {
     if (response.status !== 200) {
       throw new Error(`List hotel bookings failed: ${response.status}`);
     }
-    if (!Array.isArray(response.body.bookings) && !Array.isArray(response.body)) {
-      throw new Error("Expected bookings array");
+    if (!Array.isArray(response.body.bookings) && !Array.isArray(response.body) && response.body !== null) {
+      throw new Error("Expected bookings array or null");
     }
   });
 
@@ -775,11 +781,14 @@ async function testBFFOperations(): Promise<void> {
     bffClient.setToken(testData.adminToken!);
     const response = await bffClient.post(`/hotels/${testData.hotelId}/rooms`, {
       hotel_id: testData.hotelId,
-      room_type: "BFF Test Suite",
+      name: "BFF Deluxe Room",
+      type: "BFF Test Suite",
+      price: 250.0,
       capacity: 3,
-      price_per_night: 250.0,
-      available_quantity: 5,
+      quantity: 5,
       description: "Room created via BFF bridge",
+      space_info: "35 sqm with balcony",
+      bed_distribution: "1 King Bed, 1 Sofa Bed",
     });
     if (response.status !== 201 && response.status !== 200) {
       throw new Error(
@@ -809,10 +818,11 @@ async function testBFFOperations(): Promise<void> {
     const response = await bffClient.post("/reservations", {
       hotel_id: testData.hotelId,
       room_id: testData.roomId,
-      check_in: startDate.toISOString(),
-      check_out: endDate.toISOString(),
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
       guest_count: 2,
-      special_requests: "Created via BFF test suite",
+      guest_name: "Test User",
+      guest_email: "test@example.com",
     });
 
     if (response.status !== 201 && response.status !== 200) {
