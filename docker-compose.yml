@@ -19,6 +19,8 @@ services:
         condition: service_healthy
       payment-service:
         condition: service_healthy
+      notification-service:
+        condition: service_healthy
     ports:
       - "8080:8080"
     healthcheck:
@@ -304,6 +306,8 @@ services:
         condition: service_healthy
       media-service:
         condition: service_healthy
+      notification-service:
+        condition: service_healthy
     environment:
       HOTEL_SERVICE_URL: http://hotel-service:8080
       ROOM_SERVICE_URL: http://rooms-service:8080
@@ -311,6 +315,7 @@ services:
       RESERVATION_SERVICE_URL: http://booking-service:8080
       MEDIA_SERVICE_URL: http://media-service:8080
       PAYMENT_SERVICE_URL: http://payment-service:8080
+      NOTIFICATION_SERVICE_URL: http://notification-service:8080
     ports:
       - "8087:8080"
     healthcheck:
@@ -360,6 +365,43 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  notification-service:
+    build:
+      context: ../NotificationsMicroService
+    container_name: notification-service
+    restart: unless-stopped
+    volumes:
+      - ./keys/public.pem:/app/keys/public.pem:ro
+    depends_on:
+      mailpit:
+        condition: service_healthy
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: "noreply@hotel.com"
+    ports:
+      - "8089:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
   user-db-data:
