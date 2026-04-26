@@ -6,10 +6,12 @@
 export interface TestConfig {
   baseUrl: {
     apiGateway: string;
+    bffService: string;
     userService: string;
     mediaService: string;
     hotelService: string;
     roomService: string;
+    bookingService: string;
   };
   credentials: {
     adminEmail: string;
@@ -27,10 +29,12 @@ export interface TestConfig {
 const config: TestConfig = {
   baseUrl: {
     apiGateway: process.env.API_GATEWAY_URL || 'http://localhost:8080',
+    bffService: process.env.BFF_SERVICE_URL || 'http://localhost:8087',
     userService: process.env.USER_SERVICE_URL || 'http://localhost:8081',
     mediaService: process.env.MEDIA_SERVICE_URL || 'http://localhost:8082',
     hotelService: process.env.HOTEL_SERVICE_URL || 'http://localhost:8084',
     roomService: process.env.ROOM_SERVICE_URL || 'http://localhost:8085',
+    bookingService: process.env.BOOKING_SERVICE_URL || 'http://localhost:8086',
   },
   credentials: {
     adminEmail: process.env.ADMIN_EMAIL || 'admin@hotel.com',

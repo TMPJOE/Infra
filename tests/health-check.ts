@@ -11,6 +11,8 @@ const services = {
   'Media Service': config.baseUrl.mediaService,
   'Hotel Service': config.baseUrl.hotelService,
   'Room Service': config.baseUrl.roomService,
+  'Booking Service': config.baseUrl.bookingService,
+  'BFF Service': config.baseUrl.bffService,
 };
 
 async function checkHealth(name: string, url: string): Promise<boolean> {

@@ -22,23 +22,27 @@ import { TestRunner } from "./test-runner.ts";
 
 // Test data storage
 interface TestData {
-	adminToken: string | null;
-	userToken: string | null;
-	adminId: string | null;
-	userId: string | null;
-	hotelId: string | null;
-	roomId: string | null;
-	uploadedMedia: any[];
+  adminToken: string | null;
+  userToken: string | null;
+  adminId: string | null;
+  userId: string | null;
+  hotelId: string | null;
+  roomId: string | null;
+  bookingId: string | null;
+  reservationId: string | null;
+  uploadedMedia: any[];
 }
 
 const testData: TestData = {
-	adminToken: null,
-	userToken: null,
-	adminId: null,
-	userId: null,
-	hotelId: null,
-	roomId: null,
-	uploadedMedia: [],
+  adminToken: null,
+  userToken: null,
+  adminId: null,
+  userId: null,
+  hotelId: null,
+  roomId: null,
+  bookingId: null,
+  reservationId: null,
+  uploadedMedia: [],
 };
 
 // Initialize clients
@@ -46,6 +50,8 @@ const userClient = new TestClient(config.baseUrl.userService);
 const hotelClient = new TestClient(config.baseUrl.hotelService);
 const mediaClient = new TestClient(config.baseUrl.mediaService);
 const roomClient = new TestClient(config.baseUrl.roomService);
+const bookingClient = new TestClient(config.baseUrl.bookingService);
+const bffClient = new TestClient(config.baseUrl.bffService);
 
 const runner = new TestRunner(true);
 
@@ -85,13 +91,37 @@ async function testServiceHealth(): Promise<void> {
 			throw new Error(`Readiness check failed: ${response.status}`);
 	});
 
-	await runner.runTest("Hotel Service readiness check", async () => {
-		const response = await hotelClient.get("/ready");
-		if (response.status !== 200)
-			throw new Error(`Readiness check failed: ${response.status}`);
-	});
+  await runner.runTest("Hotel Service readiness check", async () => {
+    const response = await hotelClient.get("/ready");
+    if (response.status !== 200)
+      throw new Error(`Readiness check failed: ${response.status}`);
+  });
 
-	runner.endSuite();
+  await runner.runTest("Booking Service health endpoint", async () => {
+    const response = await bookingClient.get("/health");
+    if (response.status !== 200)
+      throw new Error(`Health check failed: ${response.status}`);
+  });
+
+  await runner.runTest("Booking Service readiness check", async () => {
+    const response = await bookingClient.get("/ready");
+    if (response.status !== 200)
+      throw new Error(`Readiness check failed: ${response.status}`);
+  });
+
+  await runner.runTest("BFF Service health endpoint", async () => {
+    const response = await bffClient.get("/health");
+    if (response.status !== 200)
+      throw new Error(`Health check failed: ${response.status}`);
+  });
+
+  await runner.runTest("BFF Service readiness check", async () => {
+    const response = await bffClient.get("/ready");
+    if (response.status !== 200)
+      throw new Error(`Readiness check failed: ${response.status}`);
+  });
+
+  runner.endSuite();
 }
 
 // ============================================================================
@@ -566,22 +596,263 @@ async function testAuthorization(): Promise<void> {
 		}
 	});
 
-	await runner.runTest("Unauthorized request returns 401", async () => {
-		hotelClient.clearToken();
-		const response = await hotelClient.post("/hotels", {
-			name: "Unauthorized Hotel",
-			city: "Test",
-		});
-		if (response.status !== 401) {
-			throw new Error(`Expected 401, got: ${response.status}`);
-		}
-	});
+  await runner.runTest("Unauthorized request returns 401", async () => {
+    hotelClient.clearToken();
+    const response = await hotelClient.post("/hotels", {
+      name: "Unauthorized Hotel",
+      city: "Test",
+    });
+    if (response.status !== 401) {
+      throw new Error(`Expected 401, got: ${response.status}`);
+    }
+  });
 
-	runner.endSuite();
+  runner.endSuite();
 }
 
 // ============================================================================
-// SUITE 9: Cleanup
+// SUITE 9: Booking Service Operations
+// ============================================================================
+async function testBookingOperations(): Promise<void> {
+  runner.startSuite("Booking Service Operations");
+
+  await runner.runTest("List all bookings", async () => {
+    bookingClient.setToken(testData.adminToken!);
+    const response = await bookingClient.get("/bookings");
+    if (response.status !== 200) {
+      throw new Error(`List bookings failed: ${response.status}`);
+    }
+    if (!Array.isArray(response.body)) {
+      throw new Error("Expected array of bookings");
+    }
+  });
+
+  await runner.runTest("Create booking for user", async () => {
+    if (!testData.hotelId || !testData.roomId || !testData.userId) {
+      throw new Error("Missing required IDs");
+    }
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 14);
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 17);
+
+    bookingClient.setToken(testData.userToken!);
+    const response = await bookingClient.post("/bookings", {
+      user_id: testData.userId,
+      hotel_id: testData.hotelId,
+      room_id: testData.roomId,
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
+      guest_count: 2,
+      total_price: 450.0,
+    });
+
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(
+        `Create booking failed: ${response.status} - ${JSON.stringify(response.body)}`,
+      );
+    }
+    testData.bookingId = response.body.id;
+  });
+
+  await runner.runTest("Get booking by ID", async () => {
+    if (!testData.bookingId) throw new Error("No booking ID available");
+    const response = await bookingClient.get(`/bookings/${testData.bookingId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get booking failed: ${response.status}`);
+    }
+    if (!response.body.id) {
+      throw new Error("Expected booking to have id");
+    }
+  });
+
+  await runner.runTest("List bookings by user", async () => {
+    if (!testData.userId) throw new Error("No user ID available");
+    const response = await bookingClient.get(`/users/${testData.userId}/bookings`);
+    if (response.status !== 200) {
+      throw new Error(`List user bookings failed: ${response.status}`);
+    }
+    if (!Array.isArray(response.body.bookings) && !Array.isArray(response.body)) {
+      throw new Error("Expected bookings array");
+    }
+  });
+
+  await runner.runTest("List bookings by hotel", async () => {
+    if (!testData.hotelId) throw new Error("No hotel ID available");
+    bookingClient.setToken(testData.adminToken!);
+    const response = await bookingClient.get(`/hotels/${testData.hotelId}/bookings`);
+    if (response.status !== 200) {
+      throw new Error(`List hotel bookings failed: ${response.status}`);
+    }
+    if (!Array.isArray(response.body.bookings) && !Array.isArray(response.body)) {
+      throw new Error("Expected bookings array");
+    }
+  });
+
+  await runner.runTest("Check room availability", async () => {
+    if (!testData.roomId) throw new Error("No room ID available");
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 1);
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 3);
+
+    const response = await bookingClient.get(
+      `/rooms/${testData.roomId}/availability?start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`,
+    );
+    if (response.status !== 200) {
+      throw new Error(`Availability check failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest("Update booking status to confirmed", async () => {
+    if (!testData.bookingId) throw new Error("No booking ID available");
+    bookingClient.setToken(testData.adminToken!);
+    const response = await bookingClient.patch(`/bookings/${testData.bookingId}/status`, {
+      status: "confirmed",
+    });
+    if (response.status !== 200) {
+      throw new Error(`Update booking status failed: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 10: BFF Service Operations
+// ============================================================================
+async function testBFFOperations(): Promise<void> {
+  runner.startSuite("BFF Service Operations");
+
+  await runner.runTest("Get hotels via BFF", async () => {
+    bffClient.setToken(testData.userToken!);
+    const response = await bffClient.get("/hotels");
+    if (response.status !== 200) {
+      throw new Error(`Get hotels via BFF failed: ${response.status}`);
+    }
+    if (!Array.isArray(response.body)) {
+      throw new Error("Expected array of hotels");
+    }
+  });
+
+  await runner.runTest("Get hotel by ID via BFF", async () => {
+    if (!testData.hotelId) throw new Error("No hotel ID available");
+    const response = await bffClient.get(`/hotels/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get hotel via BFF failed: ${response.status}`);
+    }
+    if (response.body.id !== testData.hotelId) {
+      throw new Error("Hotel ID mismatch");
+    }
+  });
+
+  await runner.runTest("Get hotel with rooms via BFF (aggregation)", async () => {
+    if (!testData.hotelId) throw new Error("No hotel ID available");
+    const response = await bffClient.get(`/hotels/${testData.hotelId}/details`);
+    if (response.status !== 200) {
+      throw new Error(`Get hotel details via BFF failed: ${response.status}`);
+    }
+    // BFF returns aggregated data with hotel and rooms
+    if (!response.body.hotel && !response.body.id) {
+      throw new Error("Expected hotel data in response");
+    }
+  });
+
+  await runner.runTest("Get room by ID via BFF", async () => {
+    if (!testData.roomId) throw new Error("No room ID available");
+    const response = await bffClient.get(`/rooms/${testData.roomId}`);
+    if (response.status !== 200) {
+      throw new Error(`Get room via BFF failed: ${response.status}`);
+    }
+    if (!response.body.id) {
+      throw new Error("Expected room to have id");
+    }
+  });
+
+  await runner.runTest("Create room via BFF (bridge pattern)", async () => {
+    if (!testData.hotelId) throw new Error("No hotel ID available");
+    bffClient.setToken(testData.adminToken!);
+    const response = await bffClient.post(`/hotels/${testData.hotelId}/rooms`, {
+      hotel_id: testData.hotelId,
+      room_type: "BFF Test Suite",
+      capacity: 3,
+      price_per_night: 250.0,
+      available_quantity: 5,
+      description: "Room created via BFF bridge",
+    });
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(
+        `Create room via BFF failed: ${response.status} - ${JSON.stringify(response.body)}`,
+      );
+    }
+  });
+
+  await runner.runTest("Get reservations via BFF", async () => {
+    bffClient.setToken(testData.userToken!);
+    const response = await bffClient.get("/reservations");
+    // Returns 200 with user's reservations
+    if (response.status !== 200) {
+      throw new Error(`Get reservations via BFF failed: ${response.status}`);
+    }
+  });
+
+  await runner.runTest("Create reservation via BFF (bridge pattern)", async () => {
+    if (!testData.hotelId || !testData.roomId) throw new Error("No hotel/room ID available");
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 21);
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 24);
+
+    bffClient.setToken(testData.userToken!);
+    const response = await bffClient.post("/reservations", {
+      hotel_id: testData.hotelId,
+      room_id: testData.roomId,
+      check_in: startDate.toISOString(),
+      check_out: endDate.toISOString(),
+      guest_count: 2,
+      special_requests: "Created via BFF test suite",
+    });
+
+    if (response.status !== 201 && response.status !== 200) {
+      throw new Error(
+        `Create reservation via BFF failed: ${response.status} - ${JSON.stringify(response.body)}`,
+      );
+    }
+    if (response.body?.id) {
+      testData.reservationId = response.body.id;
+    }
+  });
+
+  await runner.runTest("Get reservation details via BFF (aggregation)", async () => {
+    if (!testData.reservationId) {
+      console.log(" Skip: No reservation ID");
+      return;
+    }
+    const response = await bffClient.get(`/reservations/${testData.reservationId}/details`);
+    if (response.status !== 200) {
+      throw new Error(`Get reservation details via BFF failed: ${response.status}`);
+    }
+    // BFF returns aggregated data with reservation, hotel and room details
+    if (!response.body.reservation && !response.body.id) {
+      throw new Error("Expected reservation data in response");
+    }
+  });
+
+  await runner.runTest("Unauthorized BFF request returns 401", async () => {
+    bffClient.clearToken();
+    const response = await bffClient.get("/hotels");
+    if (response.status !== 401) {
+      throw new Error(`Expected 401, got: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
+}
+
+// ============================================================================
+// SUITE 11: Cleanup
 // ============================================================================
 async function cleanupTestData(): Promise<void> {
 	runner.startSuite("Cleanup Test Data");
@@ -603,34 +874,49 @@ async function cleanupTestData(): Promise<void> {
     }
   });
 
-	await runner.runTest("Delete test hotel", async () => {
-		if (!testData.hotelId) {
-			console.log("    Skip: No hotel ID");
-			return;
-		}
-		hotelClient.setToken(testData.adminToken!);
-		const response = await hotelClient.delete(`/hotels/${testData.hotelId}`);
-		if (response.status !== 200) {
-			throw new Error(`Delete hotel failed: ${response.status}`);
-		}
-	});
+  await runner.runTest("Delete test hotel", async () => {
+    if (!testData.hotelId) {
+      console.log(" Skip: No hotel ID");
+      return;
+    }
+    hotelClient.setToken(testData.adminToken!);
+    const response = await hotelClient.delete(`/hotels/${testData.hotelId}`);
+    if (response.status !== 200) {
+      throw new Error(`Delete hotel failed: ${response.status}`);
+    }
+  });
 
-	runner.endSuite();
+  await runner.runTest("Cancel test booking", async () => {
+    if (!testData.bookingId) {
+      console.log(" Skip: No booking ID");
+      return;
+    }
+    bookingClient.setToken(testData.userToken!);
+    const response = await bookingClient.post(`/bookings/${testData.bookingId}/cancel`, {});
+    // POST returns 200 on success
+    if (response.status !== 200 && response.status !== 201 && response.status !== 204) {
+      throw new Error(`Cancel booking failed: ${response.status}`);
+    }
+  });
+
+  runner.endSuite();
 }
 
 // Export test functions for use in index.ts
 export {
-	testServiceHealth,
-	testUserAuthentication,
-	testHotelOperations,
-	testMediaOperations,
-	testRoomOperations,
-	testReviewOperations,
-	testDataIntegrity,
-	testAuthorization,
-	cleanupTestData,
-	runner,
-	testData,
+  testServiceHealth,
+  testUserAuthentication,
+  testHotelOperations,
+  testMediaOperations,
+  testRoomOperations,
+  testReviewOperations,
+  testDataIntegrity,
+  testAuthorization,
+  testBookingOperations,
+  testBFFOperations,
+  cleanupTestData,
+  runner,
+  testData,
 };
 
 // ============================================================================
@@ -642,24 +928,28 @@ async function main(): Promise<void> {
 	console.log("║     Hotel Microservices Platform                         ║");
 	console.log("╚══════════════════════════════════════════════════════════╝\n");
 
-	console.log("Configuration:");
-	console.log(`  API Gateway:  ${config.baseUrl.apiGateway}`);
-	console.log(`  User Service: ${config.baseUrl.userService}`);
-	console.log(`  Hotel Service: ${config.baseUrl.hotelService}`);
-	console.log(`  Media Service: ${config.baseUrl.mediaService}`);
-	console.log(`  Room Service: ${config.baseUrl.roomService}`);
-	console.log("\n");
+  console.log("Configuration:");
+  console.log(` API Gateway: ${config.baseUrl.apiGateway}`);
+  console.log(` User Service: ${config.baseUrl.userService}`);
+  console.log(` Hotel Service: ${config.baseUrl.hotelService}`);
+  console.log(` Media Service: ${config.baseUrl.mediaService}`);
+  console.log(` Room Service: ${config.baseUrl.roomService}`);
+  console.log(` Booking Service: ${config.baseUrl.bookingService}`);
+  console.log(` BFF Service: ${config.baseUrl.bffService}`);
+  console.log("\n");
 
-	try {
-		await testServiceHealth();
-		await testUserAuthentication();
-		await testHotelOperations();
-		await testMediaOperations();
-		await testRoomOperations();
-		await testReviewOperations();
-		await testDataIntegrity();
-		await testAuthorization();
-		await cleanupTestData();
+  try {
+    await testServiceHealth();
+    await testUserAuthentication();
+    await testHotelOperations();
+    await testMediaOperations();
+    await testRoomOperations();
+    await testReviewOperations();
+    await testDataIntegrity();
+    await testAuthorization();
+    await testBookingOperations();
+    await testBFFOperations();
+    await cleanupTestData();
 
 		console.log(runner.getReport());
 

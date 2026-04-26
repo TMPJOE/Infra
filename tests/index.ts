@@ -32,6 +32,8 @@ import {
   testReviewOperations,
   testDataIntegrity,
   testAuthorization,
+  testBookingOperations,
+  testBFFOperations,
   cleanupTestData,
   testData,
 } from './main-test-suite.ts';
@@ -51,11 +53,13 @@ async function runAllTests(): Promise<void> {
   console.log('╚══════════════════════════════════════════════════════════╝\n');
 
   console.log('Configuration:');
-  console.log(`  API Gateway:    ${config.baseUrl.apiGateway}`);
-  console.log(`  User Service:   ${config.baseUrl.userService}`);
-  console.log(`  Hotel Service:  ${config.baseUrl.hotelService}`);
-  console.log(`  Media Service:  ${config.baseUrl.mediaService}`);
-  console.log(`  Room Service:   ${config.baseUrl.roomService}`);
+  console.log(`  API Gateway: ${config.baseUrl.apiGateway}`);
+  console.log(`  User Service: ${config.baseUrl.userService}`);
+  console.log(`  Hotel Service: ${config.baseUrl.hotelService}`);
+  console.log(`  Media Service: ${config.baseUrl.mediaService}`);
+  console.log(`  Room Service: ${config.baseUrl.roomService}`);
+  console.log(`  Booking Service: ${config.baseUrl.bookingService}`);
+  console.log(`  BFF Service: ${config.baseUrl.bffService}`);
   console.log('\n');
 
   const startTime = Date.now();
@@ -72,18 +76,20 @@ async function runAllTests(): Promise<void> {
     console.log('\nPhase 2: Infrastructure Tests\n');
     await testServiceHealth();
 
-    // Phase 3: Core Functionality Tests
-    console.log('\nPhase 3: Core Functionality Tests\n');
-    await testUserAuthentication();
-    await testHotelOperations();
-    await testMediaOperations();
-    await testRoomOperations();
-    await testReviewOperations();
+  // Phase 3: Core Functionality Tests
+  console.log('\nPhase 3: Core Functionality Tests\n');
+  await testUserAuthentication();
+  await testHotelOperations();
+  await testMediaOperations();
+  await testRoomOperations();
+  await testReviewOperations();
 
-    // Phase 4: Integration Tests
-    console.log('\nPhase 4: Integration Tests\n');
-    await testDataIntegrity();
-    await testAuthorization();
+  // Phase 4: Integration Tests
+  console.log('\nPhase 4: Integration Tests\n');
+  await testDataIntegrity();
+  await testAuthorization();
+  await testBookingOperations();
+  await testBFFOperations();
 
     // Phase 5: Business Logic Scenarios
     console.log('\nPhase 5: Business Logic Scenarios\n');
