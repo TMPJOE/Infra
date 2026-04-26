@@ -653,6 +653,9 @@ async function testBookingOperations(): Promise<void> {
       end_date: endDate.toISOString(),
       guest_count: 2,
       total_price: 450.0,
+      guest_name: "Test User",
+      guest_email: "test@example.com",
+      guest_phone: "123456789",
     });
 
     if (response.status !== 201 && response.status !== 200) {
