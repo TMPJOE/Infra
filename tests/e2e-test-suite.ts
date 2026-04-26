@@ -185,6 +185,7 @@ user_type: "user",
 		// Fetch profile to get user ID since it's not in the login response
 		userClient.setToken(testData.userToken!);
 		const profileRes = await userClient.get("/profile");
+		console.log(`Debug: User Profile Response: ${JSON.stringify(profileRes.body)}`);
 		testData.userId = profileRes.body.id || null;
 	});
 
